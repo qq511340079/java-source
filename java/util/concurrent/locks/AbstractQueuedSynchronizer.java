@@ -541,6 +541,7 @@ public abstract class AbstractQueuedSynchronizer
 
     /**
      * The synchronization state.
+     * 同步状态，核心，所有获取锁的操作其实都是在获取state
      */
     private volatile int state;
 
