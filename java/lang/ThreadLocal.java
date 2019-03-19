@@ -158,8 +158,10 @@ public class ThreadLocal<T> {
      */
     public T get() {
         Thread t = Thread.currentThread();
+        //从线程中获取ThreadLocalMap<ThreadLocal, 本地化的对象>
         ThreadLocalMap map = getMap(t);
         if (map != null) {
+            //根据key获取entry
             ThreadLocalMap.Entry e = map.getEntry(this);
             if (e != null) {
                 @SuppressWarnings("unchecked")
@@ -411,6 +413,7 @@ public class ThreadLocal<T> {
          * @return the entry associated with key, or null if no such
          */
         private Entry getEntry(ThreadLocal<?> key) {
+            //直接通过取模运算获得key对应的value的索引，因为一个线程中的ThreadLocal不可能有很多，所以不用像hashmap那么复杂
             int i = key.threadLocalHashCode & (table.length - 1);
             Entry e = table[i];
             if (e != null && e.get() == key)

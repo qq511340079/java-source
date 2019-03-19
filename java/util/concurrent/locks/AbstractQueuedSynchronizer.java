@@ -399,7 +399,7 @@ public abstract class AbstractQueuedSynchronizer
          */
         static final int SIGNAL = -1;
         /**
-         * 节点在等待队列中，节点线程等待在Condition上，当其他线程对Condition调用了signal()后，改节点将会从等待队列中转移到同步队列中，加入到同步状态的获取中
+         * 节点在等待队列中，节点线程等待在Condition上，当其他线程对Condition调用了signal()后，该节点将会从等待队列中转移到同步队列中，加入到同步状态的获取中
          */
         static final int CONDITION = -2;
         /**
