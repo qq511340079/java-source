@@ -652,7 +652,7 @@ public abstract class AbstractQueuedSynchronizer
     }
 
     /**
-     * Wakes up node's successor, if one exists.
+     * 唤醒node的后继节点，此操作并不会将自己(也就是head)移除，只有当head的后继节点被唤醒后替换head节点
      *
      * @param node the node
      */
@@ -1557,9 +1557,7 @@ public abstract class AbstractQueuedSynchronizer
      *   }
      * }}</pre>
      *
-     * @return {@code true} if there is a queued thread preceding the
-     * current thread, and {@code false} if the current thread
-     * is at the head of the queue or the queue is empty
+     * @return true=在当前线程之前有一个正在排队的线程，false=当前线程在队列的头部或者队列为空
      * @since 1.7
      */
     public final boolean hasQueuedPredecessors() {
@@ -1569,6 +1567,9 @@ public abstract class AbstractQueuedSynchronizer
         Node t = tail; // Read fields in reverse initialization order
         Node h = head;
         Node s;
+        //头节点 != 尾节点，说明头结点还有后继节点
+        //head的后继节点不为null
+        //当前线程是head的后继节点
         return h != t &&
                 ((s = h.next) == null || s.thread != Thread.currentThread());
     }
