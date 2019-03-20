@@ -169,6 +169,7 @@ public class ThreadLocal<T> {
                 return result;
             }
         }
+        //初始化ThreadLocal的value
         return setInitialValue();
     }
 
@@ -179,13 +180,16 @@ public class ThreadLocal<T> {
      * @return the initial value
      */
     private T setInitialValue() {
+        //调用initialValue方法获取初始化的value
         T value = initialValue();
         Thread t = Thread.currentThread();
+        //从当前线程中获取ThreadLocalMap
         ThreadLocalMap map = getMap(t);
-        if (map != null)
+        if (map != null)//map != null则直接添加
             map.set(this, value);
-        else
+        else//map == null则创建map并添加
             createMap(t, value);
+        //返回初始化后的value
         return value;
     }
 
@@ -300,12 +304,9 @@ public class ThreadLocal<T> {
     static class ThreadLocalMap {
 
         /**
-         * The entries in this hash map extend WeakReference, using
-         * its main ref field as the key (which is always a
-         * ThreadLocal object).  Note that null keys (i.e. entry.get()
-         * == null) mean that the key is no longer referenced, so the
-         * entry can be expunged from table.  Such entries are referred to
-         * as "stale entries" in the code that follows.
+         * Entry的key为弱引用，目的是当外界不再持有对ThreadLocal的强引用时，当GC的时候就会回收该对象，
+         * 回收后k就为null了，此时的entry内部结构就成了k=null，value=T，是一个“陈旧没用”的数据了，就会在调用set、get、remove方法的时候判断map中所有k==null的entry然后进行清除。
+         * 否则entry中的value一直会被entry强引用，得不到释放造成内存泄漏
          */
         static class Entry extends WeakReference<ThreadLocal<?>> {
             /** The value associated with this ThreadLocal. */
@@ -416,6 +417,7 @@ public class ThreadLocal<T> {
             //直接通过取模运算获得key对应的value的索引，因为一个线程中的ThreadLocal不可能有很多，所以不用像hashmap那么复杂
             int i = key.threadLocalHashCode & (table.length - 1);
             Entry e = table[i];
+
             if (e != null && e.get() == key)
                 return e;
             else
@@ -463,18 +465,19 @@ public class ThreadLocal<T> {
 
             Entry[] tab = table;
             int len = tab.length;
+            //计算key在数组中的位置
             int i = key.threadLocalHashCode & (len-1);
-
+            //根据索引找到key对应的entry
             for (Entry e = tab[i];
                  e != null;
                  e = tab[i = nextIndex(i, len)]) {
                 ThreadLocal<?> k = e.get();
-
+                //如果entry的key等于key，则直接设置
                 if (k == key) {
                     e.value = value;
                     return;
                 }
-
+                //如果entry的key==null，说明该位置之前被别的ThreadLocal使用过，但是数据已经失效了，则替换掉失效的entry
                 if (k == null) {
                     replaceStaleEntry(key, value, i);
                     return;

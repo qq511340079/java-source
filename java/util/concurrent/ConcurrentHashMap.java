@@ -615,6 +615,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * in bulk tasks.  Subclasses of Node with a negative hash field
      * are special, and contain null keys and values (but are never
      * exported).  Otherwise, keys and vals are never null.
+     * 相当于保存key-value的Entry
      */
     static class Node<K,V> implements Map.Entry<K,V> {
         final int hash;
@@ -785,12 +786,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     private transient volatile long baseCount;
 
     /**
-     * Table initialization and resizing control.  When negative, the
-     * table is being initialized or resized: -1 for initialization,
-     * else -(1 + the number of active resizing threads).  Otherwise,
-     * when table is null, holds the initial table size to use upon
-     * creation, or 0 for default. After initialization, holds the
-     * next element count value upon which to resize the table.
+     *标识字段
+     * -1：table正在初始化
+     * -n：有n个线程在进行扩容
+     * >=0：table还没有初始化，表示初始化或下一次扩容的阀值
      */
     private transient volatile int sizeCtl;
 
@@ -1006,36 +1005,52 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         return putVal(key, value, false);
     }
 
-    /** Implementation for put and putIfAbsent */
+    /**
+     * 分几种情况：
+     * 1.table没有初始化，则进行初始化(CAS修改SIZECTL为-1，成功的获得初始化的权限)
+     * 2.根据key的hash获取到在table中的索引，如果索引位置处为null则尝试CAS设置，成功则跳出循环
+     * 3.(fh = f.hash) == MOVED，表示有其它线程在进行扩容，则当前线程协助一起扩容
+     * 4.索引处已经存在node，则synchronized同步加锁之后再添加到链表或红黑树
+     */
     final V putVal(K key, V value, boolean onlyIfAbsent) {
+        //ConcurrentHashMap中的key和value不能为null
         if (key == null || value == null) throw new NullPointerException();
+        //计算hash
         int hash = spread(key.hashCode());
         int binCount = 0;
         for (Node<K,V>[] tab = table;;) {
             Node<K,V> f; int n, i, fh;
+            //-----需要初始化table-----
             if (tab == null || (n = tab.length) == 0)
                 tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+            //(n - 1) & hash计算出key在table中的索引，判断索引处为null则直接CAS设置
+            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {//-----直接put-----
+                //走到这里说明索引位置上没有node，则进行CAS设置，成功则跳出循环，失败说明产生了并发，继续循环尝试
                 if (casTabAt(tab, i, null,
                              new Node<K,V>(hash, key, value, null)))
                     break;                   // no lock when adding to empty bin
             }
+            //(fh = f.hash) == -1则f是ForwardingNode节点，表示有其它线程正在进行扩容操作，则帮助其一起扩容
             else if ((fh = f.hash) == MOVED)
                 tab = helpTransfer(tab, f);
-            else {
+            else {//走到这里说明索引位置有node了
                 V oldVal = null;
+                //对索引位置处的node加锁，避免并发操作
                 synchronized (f) {
+                    //同步加锁之后，再次确认索引位置的node没有被改变
                     if (tabAt(tab, i) == f) {
+                        //fh>=0表示是链表
                         if (fh >= 0) {
                             binCount = 1;
                             for (Node<K,V> e = f;; ++binCount) {
                                 K ek;
+                                //根据hashcode和equals判断key是否相同，如果key的引用相同就不用再判断equals相同了
                                 if (e.hash == hash &&
                                     ((ek = e.key) == key ||
                                      (ek != null && key.equals(ek)))) {
                                     oldVal = e.val;
                                     if (!onlyIfAbsent)
-                                        e.val = value;
+                                        e.val = value;//替换旧的value
                                     break;
                                 }
                                 Node<K,V> pred = e;
@@ -2223,18 +2238,23 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     private final Node<K,V>[] initTable() {
         Node<K,V>[] tab; int sc;
         while ((tab = table) == null || tab.length == 0) {
+            //(sc = sizeCtl) < 0表示正在初始化，则线程让步
             if ((sc = sizeCtl) < 0)
                 Thread.yield(); // lost initialization race; just spin
+            //CAS修改sizeCtl为-1，成功则表示当前线程抢到了初始化权限
             else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
                 try {
                     if ((tab = table) == null || tab.length == 0) {
+                        //初始化table
                         int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
                         @SuppressWarnings("unchecked")
                         Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
                         table = tab = nt;
+                        //等价于capacity * 0.75,即下次出发扩容的阀值
                         sc = n - (n >>> 2);
                     }
                 } finally {
+                    //更新sizeCtl
                     sizeCtl = sc;
                 }
                 break;
