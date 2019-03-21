@@ -903,6 +903,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     // Original (since JDK1.2) Map methods
 
     /**
+     * 获取的不是精确值，因为在统计的时候有其它线程进行插入和删除
      * {@inheritDoc}
      */
     public int size() {
@@ -932,21 +933,27 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      */
     public V get(Object key) {
         Node<K,V>[] tab; Node<K,V> e, p; int n, eh; K ek;
+        //计算key的hash
         int h = spread(key.hashCode());
+        //table已经初始化 && 根据hash计算出来的索引处不为null。
+        // 此处再次看到(n - 1) & h这个操作，这也是为什么HashMap的容量要是2的次幂的原因，因为可以使得(n - 1) & h == h % hashMap容量，且与运算比取模运算快
         if ((tab = table) != null && (n = tab.length) > 0 &&
             (e = tabAt(tab, (n - 1) & h)) != null) {
             if ((eh = e.hash) == h) {
+                //hash相等并且equals，就找到了key对应的node
                 if ((ek = e.key) == key || (ek != null && key.equals(ek)))
+                    //返回node的val
                     return e.val;
             }
-            else if (eh < 0)
+            else if (eh < 0)//从红黑树中查找
                 return (p = e.find(h, key)) != null ? p.val : null;
-            while ((e = e.next) != null) {
+            while ((e = e.next) != null) {//遍历链表查找
                 if (e.hash == h &&
                     ((ek = e.key) == key || (ek != null && key.equals(ek))))
                     return e.val;
             }
         }
+        //没有找到，返回null
         return null;
     }
 
@@ -1054,13 +1061,16 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                     break;
                                 }
                                 Node<K,V> pred = e;
+                                //将链表中下一个节点赋值给e，并且判断如果是null的话直接再链表尾部添加新的node
                                 if ((e = e.next) == null) {
                                     pred.next = new Node<K,V>(hash, key,
                                                               value, null);
                                     break;
                                 }
+                                //走到这里说明需要判断链表中下一个节点
                             }
                         }
+                        //如果f是TreeBin类型节点，则按红黑树的规则更新或添加节点
                         else if (f instanceof TreeBin) {
                             Node<K,V> p;
                             binCount = 2;
@@ -1074,14 +1084,16 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     }
                 }
                 if (binCount != 0) {
+                    //如果链表的长度>=8，则将链表转为红黑树
                     if (binCount >= TREEIFY_THRESHOLD)
                         treeifyBin(tab, i);
-                    if (oldVal != null)
+                    if (oldVal != null)//如果是更新node中的value(key已经存在，则更新旧值)，则返回旧的value
                         return oldVal;
                     break;
                 }
             }
         }
+        //ConcurrentHashMap的size+1
         addCount(1L, binCount);
         return null;
     }
@@ -2274,15 +2286,21 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * @param check if <0, don't check resize, if <= 1 only check if uncontended
      */
     private final void addCount(long x, int check) {
+        //CounterCell类上有注解说明是干嘛的
         CounterCell[] as; long b, s;
+        //CAS修改baseCount失败，说明存在多线程并发修改
         if ((as = counterCells) != null ||
             !U.compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
             CounterCell a; long v; int m;
+            //变量标识不存在竞争，当CAS
             boolean uncontended = true;
+            //as == null || (m = as.length - 1) < 0 判断数组是否为空
+            //或者通过ThreadLocalRandom.getProbe() & m获取当前线程的CounterCell索引，如果索引处存在CounterCell，则通过CAS设置CELLVALUE是否成功来确认是否存在并发并赋值给uncontended
             if (as == null || (m = as.length - 1) < 0 ||
                 (a = as[ThreadLocalRandom.getProbe() & m]) == null ||
                 !(uncontended =
                   U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))) {
+                //存在并发竞争，则调用fullAddCount方法
                 fullAddCount(x, uncontended);
                 return;
             }
@@ -2520,8 +2538,11 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /* ---------------- Counter support -------------- */
 
     /**
-     * A padded cell for distributing counts.  Adapted from LongAdder
-     * and Striped64.  See their internal docs for explanation.
+     * 用于分配计数的填充单元格。 改编自LongAdder和Striped64。 请参阅其内部文档以获取解释。
+     * Striped64大致的逻辑就是维护了一个baseCount和Cell数组，线程首先会CAS修改baseCount，如果成功则退出计数，
+     * 如果失败则说明有多线程竞争，则失败的线程将会通过哈希被映射到Cell数组的不同索引，然后线程的计数就会保存在该cell的位置中。
+     * 类似于jdk1.7中HashMap的分段，将不同线程分配到数组的不同索引处独立计数后再统计cell数组中所有的计数，减少并发上锁的开销
+     *
      */
     @sun.misc.Contended static final class CounterCell {
         volatile long value;
